@@ -4,6 +4,6 @@ boto3
 streamlit_pdf_viewer
 psycopg[binary,pool]
 plotly
-numpy
+numpy<2.0
 pandas
 uuid
