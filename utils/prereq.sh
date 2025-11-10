@@ -5,17 +5,14 @@ if [ -z "$HOME" ]; then
     export HOME=$(getent passwd $(id -un) | cut -d: -f6)
 fi
 
-export DefaultCodeRepository="https://github.com/aws-samples/DAT301-reinvent-2024.git"
-export PROJ_NAME="DAT301-reinvent-2024"
+export PROJ_NAME="blaize-bazaar"
 export PYTHON_MAJOR_VERSION="3.11"
 export PYTHON_MINOR_VERSION="9"
 export PYTHON_VERSION="${PYTHON_MAJOR_VERSION}.${PYTHON_MINOR_VERSION}"
 
-export AWS_REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
-echo "Setting AWS Region to: $AWS_REGION"
-
-echo "export AWS_REGION='$AWS_REGION'" >> ~/.bashrc
-source ~/.bashrc
+# Get AWS region from environment or default to us-west-2
+export AWS_REGION=${AWS_REGION:-us-west-2}
+echo "Using AWS Region: $AWS_REGION"
 
 function check_aws_cli()
 {
@@ -34,7 +31,7 @@ function check_aws_cli()
 
 function create_env_file() 
 {
-    local repo_dir="${HOME}/environment/${PROJ_NAME}"
+    local repo_dir="/workshop/${PROJ_NAME}"
     local env_file="${repo_dir}/.env"
     # Ensure we're in the repository directory
     cd "$repo_dir" || { echo "Failed to change directory to $repo_dir"; return 1; }
@@ -67,65 +64,26 @@ EOL
     cat "$env_file"
 }
 
-function git_clone()
+function setup_venv()
 {
-    local clone_dir="${HOME}/environment"
-    cd "$clone_dir" || { echo "Failed to change directory to $clone_dir"; return 1; }
-
-    local repo_name=$(basename "$DefaultCodeRepository" .git)
-
-    if [ -d "$repo_name" ]; then
-        echo "Directory $repo_name already exists. Removing it before cloning."
-        rm -rf "$repo_name" || { echo "Failed to remove existing directory"; return 1; }
-    fi
-
-    git clone "$DefaultCodeRepository" || { echo "Failed to clone repository"; return 1; }
-    echo "Successfully cloned repository"
-
-    # Change to the newly cloned repository directory
-    cd "$repo_name" || { echo "Failed to change directory to $repo_name"; return 1; }
-
-    # Create .gitignore file
-    echo "Creating .gitignore file..."
-    cat > .gitignore << 'EOL'
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-venv-*/
-*.egg
-*.egg-info/
-.env
-# Cloud9
-.c9/
-*.launch
-.settings/
-# Misc
-.DS_Store
-.idea/
-.vscode/
-*.swp
-*.swo
-.coverage
-htmlcov/
-.pytest_cache/
-.ipynb_checkpoints/
-# AWS
-.aws/
-.aws-sam/
-EOL
+    local repo_dir="/workshop/${PROJ_NAME}"
+    cd "$repo_dir" || { echo "Failed to change directory to $repo_dir"; return 1; }
 
     # Create .env file
     create_env_file || { echo "Failed to create .env file"; return 1; }
 
-    # Create virtual environment
+    # Create virtual environment if it doesn't exist
+    if [ -d "venv-blaize-bazaar" ]; then
+        echo "Virtual environment already exists, skipping creation"
+        return 0
+    fi
+
+    echo "Creating virtual environment..."
     python3 -m venv "./venv-blaize-bazaar" || { echo "Failed to create virtual environment"; return 1; }
 
     # Activate virtual environment and install requirements
     source "./venv-blaize-bazaar/bin/activate" || { echo "Failed to activate virtual environment"; return 1; }
+    python3 -m pip install --upgrade pip > ${TERM} 2>&1
     python3 -m pip install -r requirements.txt || { echo "Failed to install requirements"; return 1; }
     deactivate
 
@@ -137,96 +95,7 @@ function print_line()
     echo "---------------------------------"
 }
 
-function resize_cloud9() {
-    echo "Resizing Cloud9 volume..."
-    # Specify the desired volume size in GiB as a command line argument. If not specified, default to 50 GiB.
-    SIZE=${1:-50}
 
-    # Get the ID of the environment host Amazon EC2 instance.
-    INSTANCEID=$(curl --silent http://169.254.169.254/latest/meta-data/instance-id)
-    echo "Instance ID: $INSTANCEID"
-
-    # Get the ID of the Amazon EBS volume associated with the instance.
-    VOLUMEID=$(aws ec2 describe-instances \
-        --instance-id $INSTANCEID \
-        --query "Reservations[0].Instances[0].BlockDeviceMappings[0].Ebs.VolumeId" \
-        --output text)
-
-    if [ -z "$VOLUMEID" ]; then
-        echo "Error: Failed to get volume ID"
-        return 1
-    fi
-    echo "Volume ID: $VOLUMEID"
-
-    # Check the current volume size
-    CURRENT_VOLSIZE=$(aws ec2 describe-volumes \
-        --volume-ids $VOLUMEID \
-        --query "Volumes[0].Size" \
-        --output text)
-
-    echo "Current volume size: $CURRENT_VOLSIZE GB"
-    echo "Requested volume size: $SIZE GB"
-
-    if [ "$SIZE" -le "$CURRENT_VOLSIZE" ]; then
-        echo "Skipping: Current volume size ($CURRENT_VOLSIZE GB) is greater than or equal to requested size ($SIZE GB)"
-        return 0
-    fi
-
-    echo "Resizing volume..."
-    # Resize the EBS volume.
-    aws ec2 modify-volume --volume-id $VOLUMEID --size $SIZE
-
-    echo "Waiting for resize to complete..."
-    while true; do
-        STATE=$(aws ec2 describe-volumes-modifications \
-            --volume-id $VOLUMEID \
-            --filters Name=modification-state,Values="optimizing","completed" \
-            --query "length(VolumesModifications)" \
-            --output text)
-        
-        if [ "$STATE" = "1" ]; then
-            echo "Volume modification complete"
-            break
-        fi
-        echo "Still waiting..."
-        sleep 1
-    done
-
-    echo "Checking file system..."
-    #Check if we're on an NVMe filesystem
-    if [ "$(readlink -f /dev/xvda)" = "/dev/xvda" ]; then
-        echo "Standard EBS volume detected"
-        # Rewrite the partition table so that the partition takes up all the space that it can.
-        sudo growpart /dev/xvda 1
-        
-        # Expand the size of the file system.
-        # Check if we are on AL2
-        if grep -q "VERSION_ID=\"2\"" /etc/os-release; then
-            echo "Amazon Linux 2 detected, using xfs_growfs"
-            sudo xfs_growfs -d /
-        else
-            echo "Using resize2fs"
-            sudo resize2fs /dev/xvda1
-        fi
-    else
-        echo "NVMe volume detected"
-        # Rewrite the partition table so that the partition takes up all the space that it can.
-        sudo growpart /dev/nvme0n1 1
-        
-        # Expand the size of the file system.
-        # Check if we're on AL2
-        if grep -q "VERSION_ID=\"2\"" /etc/os-release; then
-            echo "Amazon Linux 2 detected, using xfs_growfs"
-            sudo xfs_growfs -d /
-        else
-            echo "Using resize2fs"
-            sudo resize2fs /dev/nvme0n1p1
-        fi
-    fi
-
-    echo "Volume resize completed successfully!"
-    df -h /
-}
 
 function install_packages()
 {
@@ -234,11 +103,6 @@ function install_packages()
     current_dir=$(pwd)
     
     sudo yum install -y jq  > "${TERM}" 2>&1
-    print_line
-    
-    # Resize Cloud9 to 50GB
-    resize_cloud9 50
-    
     print_line
     echo "Installing aws cli v2"
     print_line
@@ -282,19 +146,15 @@ function configure_pg()
     # Ensure AWS CLI is using the instance profile
     unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 
-    # Use already set AWS_REGION or fetch from metadata if not set
-    if [ -z "$AWS_REGION" ]; then
-        export AWS_REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
-        echo "AWS Region not set, fetched from metadata: $AWS_REGION"
-    else
-        echo "Using existing AWS Region: $AWS_REGION"
-    fi
+    # Use already set AWS_REGION or default to us-west-2
+    export AWS_REGION=${AWS_REGION:-us-west-2}
+    echo "Using AWS Region: $AWS_REGION"
     
     # Print current IAM role information
     echo "Current IAM role:"
     aws sts get-caller-identity
 
-    DB_CLUSTER_ID="apg-pgvector-riv"
+    DB_CLUSTER_ID="apgpg-pgvector"
     echo "Retrieving DB endpoint for cluster: $DB_CLUSTER_ID"
     PGHOST=$(aws rds describe-db-cluster-endpoints \
         --db-cluster-identifier $DB_CLUSTER_ID \
@@ -310,7 +170,7 @@ function configure_pg()
     echo "DB Host: $PGHOST"
     
     # Retrieve credentials from Secrets Manager
-    SECRET_NAME="apg-pgvector-secret-RIV"
+    SECRET_NAME="apgpg-pgvector-secret"
     echo "Retrieving secret: $SECRET_NAME"
     CREDS=$(aws secretsmanager get-secret-value \
         --secret-id $SECRET_NAME \
@@ -407,9 +267,7 @@ function install_python3()
 
 function activate_venv()
 {
-    local clone_dir="${HOME}/environment"
-    local repo_name=$(basename "$DefaultCodeRepository" .git)
-    local venv_path="${clone_dir}/${repo_name}/venv-blaize-bazaar/bin/activate"
+    local venv_path="/workshop/${PROJ_NAME}/venv-blaize-bazaar/bin/activate"
 
     if [ -f "$venv_path" ]; then
         echo "Activating virtual environment"
@@ -463,7 +321,7 @@ function set_bedrock_env_vars() {
     } >> ~/.bashrc
     
     # Append to the .env file if it exists
-    ENV_FILE="${HOME}/environment/${PROJ_NAME}/.env"
+    ENV_FILE="/workshop/${PROJ_NAME}/.env"
     if [ -f "$ENV_FILE" ]; then
         echo "Appending Bedrock and S3 variables to .env file..."
         {
@@ -527,12 +385,12 @@ function check_installation()
         overall="False"
     fi
     
-    # Check Git Clone
-    if [ -d "${HOME}/environment/${PROJ_NAME}/" ]; then 
-        echo "Git Clone : OK"
+    # Check Project Directory
+    if [ -d "/workshop/${PROJ_NAME}/" ]; then 
+        echo "Project directory : OK"
     else
-        echo "Git Clone : NOTOK"
-        echo "Error: Directory ${HOME}/environment/${PROJ_NAME}/ does not exist"
+        echo "Project directory : NOTOK"
+        echo "Error: Directory /workshop/${PROJ_NAME}/ does not exist"
         overall="False"
     fi
 
@@ -557,7 +415,7 @@ function check_installation()
     fi
 
     # Check Virtual Environment
-    if [ -f "${HOME}/environment/${PROJ_NAME}/venv-blaize-bazaar/bin/activate" ]; then
+    if [ -f "/workshop/${PROJ_NAME}/venv-blaize-bazaar/bin/activate" ]; then
         echo "Virtual environment setup : OK"
     else
         echo "Virtual environment setup : NOTOK"
@@ -574,7 +432,7 @@ function check_installation()
 
     # Check Required Python Packages
     echo "Checking required Python packages..."
-    source "${HOME}/environment/${PROJ_NAME}/venv-blaize-bazaar/bin/activate" &> /dev/null
+    source "/workshop/${PROJ_NAME}/venv-blaize-bazaar/bin/activate" &> /dev/null
     required_packages=("psycopg" "boto3" "pandas" "numpy")
     packages_ok=true
     for package in "${required_packages[@]}"; do
@@ -625,12 +483,6 @@ fi
 
 echo "Process started at `date`"
 
-# Ensure script runs as ec2-user
-if [ "$(id -u -n)" != "ec2-user" ]; then 
-  sudo -u ec2-user -i "$0" "$@"
-  exit $?
-fi
-
 check_aws_cli || { echo "AWS CLI check failed"; exit 1; }
 install_packages || { echo "install_packages check failed"; exit 1; }
 
@@ -642,7 +494,7 @@ configure_pg
 print_line
 install_python3
 print_line
-git_clone
+setup_venv
 print_line
 set_bedrock_env_vars
 print_line
