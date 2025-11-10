@@ -41,7 +41,7 @@ function create_env_file()
 # Note: Don't change these values
 DB_HOST=${PGHOST}
 DB_PORT=${PGPORT}
-DB_NAME=${PGDATABASE}
+DB_NAME=postgres
 DB_USER=${PGUSER}
 DB_PASSWORD=${PGPASSWORD}
     
