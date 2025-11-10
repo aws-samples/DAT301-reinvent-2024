@@ -311,15 +311,15 @@ function set_bedrock_env_vars() {
         return 1
     fi
     
-    # Write variables to .bashrc
-    echo "Writing variables to .bashrc..."
+    # Write variables to .bash_profile
+    echo "Writing variables to .bash_profile..."
     {
         echo "# Bedrock KB and S3 environment variables"
         echo "export S3_KB_BUCKET='${S3_KB_BUCKET}'"
         echo "export BEDROCK_KB_ID='${BEDROCK_KB_ID}'"
         echo "export BEDROCK_AGENT_ID='${BEDROCK_AGENT_ID}'"
         echo "export BEDROCK_AGENT_ALIAS_ID='${BEDROCK_AGENT_ALIAS_ID}'"
-    } >> ~/.bashrc
+    } >> ~/.bash_profile
     
     # Append to the .env file if it exists
     ENV_FILE="/workshop/${PROJ_NAME}/.env"
@@ -339,8 +339,8 @@ function set_bedrock_env_vars() {
         echo "Warning: .env file not found at $ENV_FILE"
     fi
     
-    # Source the updated .bashrc to make variables available immediately
-    source ~/.bashrc
+    # Source the updated .bash_profile to make variables available immediately
+    source ~/.bash_profile
     
     echo "Environment variables set and persisted successfully:"
     echo "S3_KB_BUCKET: ${S3_KB_BUCKET}"
