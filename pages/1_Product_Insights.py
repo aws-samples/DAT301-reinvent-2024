@@ -457,16 +457,15 @@ def main():
     
     # Sidebar
     st.sidebar.image(LOGO_URL, use_container_width=True)
-    st.sidebar.title('**About**')
+    st.sidebar.title('About')
     st.sidebar.info("""
-    This dashboard provides comprehensive product insights using AI-powered analysis.
+    AI-powered product insights dashboard.
     
     Features:
-    - Real-time sales analytics
-    - Category performance metrics
+    - Sales analytics
+    - Performance metrics
     - Revenue analysis
-    - AI-powered market insights
-    - Customer behavior analysis
+    - Market insights
     """)
     
     # Add refresh button in sidebar
