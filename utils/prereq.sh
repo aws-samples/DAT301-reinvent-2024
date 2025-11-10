@@ -213,6 +213,7 @@ function configure_pg()
     echo "export AWS_REGION='$AWS_REGION'" >> ~/.bash_profile
     echo "export PGDATABASE='postgres'" >> ~/.bash_profile
     echo "export PGPORT=5432" >> ~/.bash_profile
+    echo "export DB_NAME=postgres" >> ~/.bash_profile
 
     source ~/.bash_profile
 
